@@ -1,9 +1,0 @@
-POST http://127.0.0.1:3000/v1/reviews
-Authorization: Bearer AMSYAR_XSOLLA_INTERN2026
-Idempotency-Key: test-key-999
-Content-Type: application/json
-
-{
-  "provider": "mock",
-  "diff": "--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n+const a = 1;"
-}
