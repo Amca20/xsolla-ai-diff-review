@@ -39,7 +39,7 @@ When using `"provider": "mock"`, the engine scans added diff lines (`+`) against
 #### Headers
 | Header | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `Authorization` | String | **Yes** | `Bearer AMSYAR_XSOLLA_INTERN2026` |
+| `Authorization` | String | **Yes** | `Bearer <YOUR_BEARER_TOKEN>` |
 | `Content-Type` | String | **Yes** | `application/json` |
 | `Idempotency-Key`| String | No | Unique key to ensure request idempotency |
 
@@ -70,7 +70,7 @@ When using `"provider": "mock"`, the engine scans added diff lines (`+`) against
 #### Headers
 | Header | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `Authorization` | String | **Yes** | `Bearer AMSYAR_XSOLLA_INTERN2026` |
+| `Authorization` | String | **Yes** | `Bearer <YOUR_BEARER_TOKEN>` |
 
 #### Server-Sent Events (SSE) Response Stream
 ```http
@@ -103,3 +103,28 @@ data: {"total":1,"usage":{"inputBytes":76,"chunks":1,"cacheHit":false}}
 ### Prerequisites
 * **Node.js:** v18+ 
 * **npm:** v9+
+
+### Installation & Setup
+
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/Amca20/xsolla-diff-review.git](https://github.com/Amca20/xsolla-diff-review.git)
+   cd xsolla-diff-review
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables (`.env`):**
+   ```env
+   PORT=3000
+   BEARER_TOKEN=YOUR_SECRET_BEARER_TOKEN
+   GEMINI_API_KEY=your_optional_gemini_api_key
+   ```
+
+4. **Start the server:**
+   ```bash
+   node server.js
+   ```
