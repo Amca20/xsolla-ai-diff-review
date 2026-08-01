@@ -103,28 +103,3 @@ data: {"total":1,"usage":{"inputBytes":76,"chunks":1,"cacheHit":false}}
 ### Prerequisites
 * **Node.js:** v18+ 
 * **npm:** v9+
-
-### Installation & Setup
-
-1. **Clone the repository:**
-   ```bash
-   git clone [https://github.com/Amca20/xsolla-diff-review.git](https://github.com/Amca20/xsolla-diff-review.git)
-   cd xsolla-diff-review
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-3. **Set up environment variables (`.env`):**
-   ```env
-   PORT=3000
-   BEARER_TOKEN=AMSYAR_XSOLLA_INTERN2026
-   GEMINI_API_KEY=your_optional_gemini_api_key
-   ```
-
-4. **Start the server:**
-   ```bash
-   npm start
-   ```
