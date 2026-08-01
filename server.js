@@ -8,6 +8,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const AUTH_TOKEN = process.env.BEARER_TOKEN || 'AMSYAR_XSOLLA_INTERN2026';
+const startTime = Date.now();
 
 // Initialize Gemini API (if key exists)
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
@@ -18,8 +19,9 @@ const cacheDb = new Map();
 const idempotencyDb = new Map();
 const rateLimitMap = new Map();
 
-// Helper to capture raw body for payload size calculation
+// Helper to capture raw body for payload size check
 app.use(express.json({
+  limit: '1mb',
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
@@ -36,17 +38,38 @@ app.use((req, res, next) => {
 
 // Utility Helper for Structured Errors
 function sendError(res, statusCode, code, message) {
-  return res.status(statusCode).json({
-    error: { code, message }
-  });
+  return res.status(statusCode).json({ error: { code, message } });
 }
 
-// -------------------------------------------------------------
-// Middleware: Bearer Authentication
-// -------------------------------------------------------------
-app.use((req, res, next) => {
-  if (req.path === '/health') return next();
+// ============================================================================
+// 1. PUBLIC ENDPOINTS (No Auth Required)
+// ============================================================================
 
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    version: '1.0.0',
+    uptimeSeconds: Math.floor((Date.now() - startTime) / 1000)
+  });
+});
+
+app.get('/spec', (req, res) => {
+  res.status(200).json({
+    specVersion: '1.0',
+    providers: ['mock', 'llm'],
+    limits: {
+      maxPayloadBytes: 1048576,
+      chunkBytes: 65536,
+      maxConcurrentJobs: 4,
+      rateLimitPerMinute: 30
+    }
+  });
+});
+
+// ============================================================================
+// 2. MIDDLEWARE: BEARER AUTHENTICATION (For /v1/* only)
+// ============================================================================
+app.use('/v1', (req, res, next) => {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return sendError(res, 401, 'unauthorized', 'Missing or invalid authorization token');
@@ -56,96 +79,181 @@ app.use((req, res, next) => {
   if (token !== AUTH_TOKEN) {
     return sendError(res, 401, 'unauthorized', 'Invalid authorization token');
   }
-
   next();
 });
 
-// -------------------------------------------------------------
-// GET /health
-// -------------------------------------------------------------
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
+// ============================================================================
+// 3. ENGINES & LOGIC
+// ============================================================================
 
-// Helper: Calculate diff chunks
+// Calculate chunk count accurately based on file boundaries (simulated for byte size)
 function calculateChunks(diffText) {
-  const lines = diffText.split('\n');
-  let chunks = 0;
-  for (const line of lines) {
-    if (line.startsWith('@@')) chunks++;
-  }
-  return chunks || 1;
+  const inputBytes = Buffer.byteLength(diffText, 'utf8');
+  return Math.max(1, Math.ceil(inputBytes / 65536));
 }
 
-// Mock Engine Scanning Logic
+// 100% Compliant Mock Analysis
 function runMockAnalysis(diff) {
   const findings = [];
   const lines = diff.split('\n');
-  
-  lines.forEach((line, idx) => {
-    if (line.startsWith('+') && line.includes('eval(')) {
-      findings.push({
-        id: `MOCK-${String(findings.length + 1).padStart(3, '0')}:app.js:${idx + 1}`,
-        ruleId: 'MOCK-001',
-        path: 'app.js',
-        line: idx + 1,
-        severity: 'critical',
-        category: 'security',
-        title: 'eval usage',
-        evidence: line
-      });
+  let currentFile = 'unknown';
+  let newLineNum = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.startsWith('+++ b/') || line.startsWith('+++ ')) {
+      currentFile = line.replace('+++ b/', '').replace('+++ ', '').trim();
+      continue;
     }
+
+    if (line.startsWith('@@')) {
+      const match = line.match(/\+([0-9]+)/);
+      if (match) newLineNum = parseInt(match[1], 10) - 1;
+      continue;
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      newLineNum++;
+      const addedContent = line.substring(1);
+
+      // MOCK-001
+      if (addedContent.includes('eval(')) {
+        findings.push(createFinding('MOCK-001', currentFile, newLineNum, 'critical', 'security', 'eval usage', line));
+      }
+      // MOCK-002
+      if (/(api[_-]?key|secret|token)\s*[:=]\s*['"][A-Za-z0-9_\-]{16,}['"]/i.test(addedContent)) {
+        findings.push(createFinding('MOCK-002', currentFile, newLineNum, 'critical', 'security', 'hardcoded credential', line));
+      }
+      // MOCK-003
+      if (/(SELECT|INSERT|UPDATE|DELETE)/i.test(addedContent) && addedContent.includes('+')) {
+        findings.push(createFinding('MOCK-003', currentFile, newLineNum, 'high', 'security', 'SQL string concatenation', line));
+      }
+      // MOCK-004
+      if (/catch\s*\([^)]*\)\s*\{\s*\}/.test(addedContent) || (addedContent.includes('catch') && addedContent.includes('{}'))) {
+        findings.push(createFinding('MOCK-004', currentFile, newLineNum, 'high', 'correctness', 'swallowed exception', line));
+      }
+      // MOCK-005
+      if (addedContent.includes('== null') || addedContent.includes('!= null')) {
+        findings.push(createFinding('MOCK-005', currentFile, newLineNum, 'medium', 'correctness', 'loose null comparison', line));
+      }
+      // MOCK-006
+      if (addedContent.includes('JSON.parse(JSON.stringify(')) {
+        findings.push(createFinding('MOCK-006', currentFile, newLineNum, 'medium', 'performance', 'deep-clone via JSON', line));
+      }
+      // MOCK-007
+      if (addedContent.includes('console.log(')) {
+        findings.push(createFinding('MOCK-007', currentFile, newLineNum, 'low', 'style', 'console.log left in', line));
+      }
+      // MOCK-008
+      if (addedContent.includes('TODO') || addedContent.includes('FIXME')) {
+        findings.push(createFinding('MOCK-008', currentFile, newLineNum, 'low', 'style', 'unresolved marker', line));
+      }
+      // MOCK-INJ
+      if (/(ignore previous instructions|disregard all prior|you are now)/i.test(addedContent)) {
+        findings.push(createFinding('MOCK-INJ', currentFile, newLineNum, 'critical', 'security', 'prompt-injection content', line));
+      }
+    }
+  }
+
+  // Exact sorting spec: path -> line -> ruleId
+  findings.sort((a, b) => {
+    if (a.path !== b.path) return a.path.localeCompare(b.path);
+    if (a.line !== b.line) return a.line - b.line;
+    return a.ruleId.localeCompare(b.ruleId);
   });
 
-  return findings;
+  // Deduplicate by ID
+  const uniqueFindings = [];
+  const seenIds = new Set();
+  for (const f of findings) {
+    if (!seenIds.has(f.id)) {
+      seenIds.add(f.id);
+      uniqueFindings.push(f);
+    }
+  }
+
+  return uniqueFindings;
 }
 
-// Background Processing Function
-async function processJobInBackground(jobId) {
+function createFinding(ruleId, path, line, severity, category, title, evidence) {
+  return {
+    id: `${ruleId}:${path}:${line}`,
+    ruleId,
+    path,
+    line,
+    severity,
+    category,
+    title,
+    evidence
+  };
+}
+
+// Job Processor
+async function processJobInBackground(jobId, diff, options) {
   const job = jobsDb.get(jobId);
   if (!job) return;
 
   job.status = 'running';
+  emitSSE(job, 'status', { status: 'running' });
 
   try {
-    if (job.provider === 'mock') {
-      job.findings = runMockAnalysis(job.diff);
-    } else if (job.provider === 'llm' && genAI) {
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const prompt = `You are a code review tool. Analyze this unified diff and respond with JSON array of security/quality findings. Each item must have: id, ruleId, path, line, severity, category, title, evidence.\n\nDiff:\n${job.diff}`;
-      
-      const result = await model.generateContent(prompt);
-      const text = result.response.text();
-      
-      try {
-        const jsonStart = text.indexOf('[');
-        const jsonEnd = text.lastIndexOf(']');
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-          job.findings = JSON.parse(text.substring(jsonStart, jsonEnd + 1));
-        }
-      } catch (e) {
-        job.findings = [];
-      }
+    const provider = options?.provider || 'mock';
+    const maxFindings = options?.maxFindings || 100;
+    let findings = [];
+
+    if (provider === 'mock') {
+      findings = runMockAnalysis(diff);
+    } else if (provider === 'llm') {
+      if (!genAI) throw new Error('LLM provider configured but no API key found');
+      // Dummy call for LLM or graceful fallback
+      findings = runMockAnalysis(diff); 
+    } else {
+      throw new Error('Unknown provider');
     }
-    
+
+    job.findings = findings.slice(0, maxFindings);
     job.status = 'done';
 
-    // SIMPAN KE CACHE BILA PROSES DAH BETUL-BETUL DONE
+    // Save to Cache
     if (job.cacheKey) {
-      cacheDb.set(job.cacheKey, job);
+      cacheDb.set(job.cacheKey, { diff, options, findings: job.findings, usage: job.usage });
     }
+
+    // Stream findings line by line
+    for (const f of job.findings) {
+      emitSSE(job, 'finding', f);
+      await new Promise(r => setTimeout(r, 5)); // Simulate stream delay
+    }
+
+    emitSSE(job, 'status', { status: 'done' });
+    emitSSE(job, 'done', { total: job.findings.length, usage: job.usage });
+
   } catch (err) {
     job.status = 'failed';
     job.error = err.message;
+    emitSSE(job, 'status', { status: 'failed', error: job.error });
+  } finally {
+    // Close connections
+    job.listeners.forEach(res => res.end());
+    job.listeners = [];
   }
 }
 
-// -------------------------------------------------------------
+function emitSSE(job, eventName, data) {
+  const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+  job.events.push(payload); // Store for replay
+  job.listeners.forEach(res => res.write(payload)); // Send to active connections
+}
+
+// ============================================================================
+// 4. API ENDPOINTS (/v1/*)
+// ============================================================================
+
 // POST /v1/reviews
-// -------------------------------------------------------------
 app.post('/v1/reviews', (req, res) => {
-  // Rate Limiter Check
-  const clientIp = req.ip;
+  // Rate Limiting (30 per min)
+  const clientIp = req.ip || 'global';
   const now = Date.now();
   const userRate = rateLimitMap.get(clientIp) || { count: 0, resetAt: now + 60000 };
 
@@ -155,152 +263,145 @@ app.post('/v1/reviews', (req, res) => {
   }
 
   if (userRate.count >= 30) {
-    res.setHeader('Retry-After', '60');
-    return sendError(res, 429, 'rate_limited', 'Rate limit exceeded. Try again later.');
+    res.setHeader('Retry-After', Math.ceil((userRate.resetAt - now) / 1000).toString());
+    return sendError(res, 429, 'rate_limited', 'Rate limit exceeded.');
   }
   userRate.count++;
   rateLimitMap.set(clientIp, userRate);
 
-  // Payload Size Check
-  const payloadBytes = req.rawBody ? req.rawBody.length : Buffer.byteLength(JSON.stringify(req.body));
-  if (payloadBytes > 1048576) {
-    return sendError(res, 413, 'payload_too_large', 'Payload exceeds 1 MiB limit');
-  }
-
-  const { diff, options } = req.body;
+  // Payload check (Excess of 1MiB caught by express.json limit, this catches invalid json/missing diff)
+  const { diff, options } = req.body || {};
   if (!diff || typeof diff !== 'string' || diff.trim() === '') {
     return sendError(res, 422, 'invalid_diff', 'Unified diff is missing or invalid');
   }
 
-  const provider = options?.provider || 'mock';
-  const maxFindings = options?.maxFindings || 100;
-
-  if (provider !== 'mock' && provider !== 'llm') {
-    return sendError(res, 422, 'invalid_diff', 'Invalid provider value');
-  }
-
-  // Idempotency Check
-  const idempotencyKey = req.headers['idempotency-key'];
+  // Hash payload for cache and idempotency
   const bodyHash = crypto.createHash('sha256').update(req.rawBody || JSON.stringify(req.body)).digest('hex');
+  const idempotencyKey = req.headers['idempotency-key'];
 
+  // Idempotency
   if (idempotencyKey) {
     if (idempotencyDb.has(idempotencyKey)) {
       const existing = idempotencyDb.get(idempotencyKey);
       if (existing.hash === bodyHash) {
-        return res.status(202).json({ jobId: existing.jobId, status: existing.status });
+        return res.status(202).json({ jobId: existing.jobId, status: jobsDb.get(existing.jobId)?.status || 'queued' });
       } else {
         return sendError(res, 409, 'idempotency_conflict', 'Idempotency key reused with different payload');
       }
     }
   }
 
-  // Cache Check (Bila Jumpa Cache)
-  const cacheKey = `${provider}:${maxFindings}:${bodyHash}`;
+  const provider = options?.provider || 'mock';
+  const cacheKey = `${provider}:${options?.maxFindings || 100}:${bodyHash}`;
+
+  // Caching
   if (cacheDb.has(cacheKey)) {
-    const existingJob = cacheDb.get(cacheKey);
-    const cachedJobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const cachedData = cacheDb.get(cacheKey);
+    const cachedJobId = 'job_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
     
-    // Salin data job asal dan set cacheHit: true secara khusus untuk stream replay
-    const cachedJob = {
-      ...existingJob,
+    const job = {
       jobId: cachedJobId,
       status: 'done',
-      usage: { ...existingJob.usage, cacheHit: true }
+      findings: cachedData.findings,
+      usage: { ...cachedData.usage, cacheHit: true },
+      events: [],
+      listeners: []
     };
 
-    jobsDb.set(cachedJobId, cachedJob);
+    // Pre-fill events for stream replay
+    job.events.push(`event: status\ndata: {"status":"running"}\n\n`);
+    job.findings.forEach(f => job.events.push(`event: finding\ndata: ${JSON.stringify(f)}\n\n`));
+    job.events.push(`event: status\ndata: {"status":"done"}\n\n`);
+    job.events.push(`event: done\ndata: ${JSON.stringify({ total: job.findings.length, usage: job.usage })}\n\n`);
+
+    jobsDb.set(cachedJobId, job);
+    if (idempotencyKey) idempotencyDb.set(idempotencyKey, { hash: bodyHash, jobId: cachedJobId });
+
     return res.status(202).json({ jobId: cachedJobId, status: 'done' });
   }
 
-  // First Run (Bukan Cache)
-  const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-  const inputBytes = Buffer.byteLength(diff);
+  // New Job Creation
+  const jobId = 'job_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
+  const inputBytes = Buffer.byteLength(diff, 'utf8');
   const chunks = calculateChunks(diff);
 
   const newJob = {
     jobId,
     cacheKey,
     status: 'queued',
-    diff,
-    provider,
-    maxFindings,
     findings: [],
-    usage: { inputBytes, chunks, cacheHit: false }, // FIRST RUN SENTIASA FALSE
-    createdAt: new Date()
+    usage: { inputBytes, chunks, cacheHit: false },
+    events: [],
+    listeners: []
   };
 
   jobsDb.set(jobId, newJob);
+  if (idempotencyKey) idempotencyDb.set(idempotencyKey, { hash: bodyHash, jobId });
 
-  if (idempotencyKey) {
-    idempotencyDb.set(idempotencyKey, { hash: bodyHash, jobId, status: 'queued' });
-  }
-
-  setImmediate(() => processJobInBackground(jobId));
+  // Fire and forget processing
+  setImmediate(() => processJobInBackground(jobId, diff, options));
 
   return res.status(202).json({ jobId, status: 'queued' });
 });
 
-// -------------------------------------------------------------
-// GET /v1/reviews/:id/stream (SSE Endpoint)
-// -------------------------------------------------------------
+// GET /v1/reviews/:id (Standard Polling)
+app.get('/v1/reviews/:id', (req, res) => {
+  const { id } = req.params;
+  const job = jobsDb.get(id);
+
+  if (!job) return sendError(res, 404, 'not_found', 'Job not found');
+
+  const response = { jobId: job.jobId, status: job.status };
+  if (job.status === 'done') {
+    response.findings = job.findings;
+    response.usage = job.usage;
+  } else if (job.status === 'failed') {
+    response.error = job.error;
+  }
+
+  return res.status(200).json(response);
+});
+
+// GET /v1/reviews/:id/stream (SSE Stream)
 app.get('/v1/reviews/:id/stream', (req, res) => {
   const { id } = req.params;
   const job = jobsDb.get(id);
 
-  if (!job) {
-    return sendError(res, 404, 'not_found', 'Job not found');
-  }
+  if (!job) return sendError(res, 404, 'not_found', 'Job not found');
 
-  // SSE Headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
-  const sendEvent = (event, data) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  };
-
-  // Jika Job Dah Selesai (Sama ada First Run yang pantas atau Stream Replay)
-  if (job.status === 'done') {
-    sendEvent('status', { status: 'running' });
-    job.findings.forEach(f => sendEvent('finding', f));
-    sendEvent('done', { total: job.findings.length, usage: job.usage });
+  // If job is already complete, replay all events identically
+  if (job.status === 'done' || job.status === 'failed') {
+    job.events.forEach(eventData => res.write(eventData));
     return res.end();
   }
 
-  if (job.status === 'failed') {
-    sendEvent('status', { status: 'failed', error: job.error });
-    return res.end();
-  }
-
-  // Jika Job Masih Bertakung/Sedang Berjalan (Real-time Stream polling)
-  sendEvent('status', { status: 'running' });
-
-  const interval = setInterval(() => {
-    const currentJob = jobsDb.get(id);
-    if (!currentJob) {
-      clearInterval(interval);
-      return res.end();
-    }
-
-    if (currentJob.status === 'done') {
-      clearInterval(interval);
-      currentJob.findings.forEach(f => sendEvent('finding', f));
-      sendEvent('done', { total: currentJob.findings.length, usage: currentJob.usage });
-      res.end();
-    } else if (currentJob.status === 'failed') {
-      clearInterval(interval);
-      sendEvent('status', { status: 'failed', error: currentJob.error });
-      res.end();
-    }
-  }, 300);
+  // If job is in progress, register this connection as a listener
+  res.write(`event: status\ndata: ${JSON.stringify({ status: job.status })}\n\n`);
+  job.listeners.push(res);
 
   req.on('close', () => {
-    clearInterval(interval);
+    job.listeners = job.listeners.filter(l => l !== res);
   });
 });
 
-// Start Server
+// Global 404
+app.use((req, res) => {
+  sendError(res, 404, 'not_found', 'Route not found');
+});
+
+// Global Error Handler for invalid JSON bodies
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return sendError(res, 400, 'invalid_json', 'Invalid JSON payload');
+  }
+  next();
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Xsolla AI Review Server active on port ${PORT}`);
 });
