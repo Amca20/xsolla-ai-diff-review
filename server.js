@@ -86,13 +86,30 @@ app.use('/v1', (req, res, next) => {
 // 3. ENGINES & LOGIC
 // ============================================================================
 
-// Calculate chunk count accurately based on file boundaries (simulated for byte size)
+// Accurate Chunking: Splits diffs over 64 KiB on file boundaries
 function calculateChunks(diffText) {
   const inputBytes = Buffer.byteLength(diffText, 'utf8');
-  return Math.max(1, Math.ceil(inputBytes / 65536));
+  if (inputBytes <= 65536) return 1;
+
+  const fileDiffs = diffText.split(/(?=^diff --git )|(?=^--- )/m).filter(Boolean);
+  let chunkCount = 0;
+  let currentChunkBytes = 0;
+
+  for (const fileDiff of fileDiffs) {
+    const fileBytes = Buffer.byteLength(fileDiff, 'utf8');
+    if (currentChunkBytes + fileBytes > 65536 && currentChunkBytes > 0) {
+      chunkCount++;
+      currentChunkBytes = fileBytes;
+    } else {
+      currentChunkBytes += fileBytes;
+    }
+  }
+  if (currentChunkBytes > 0) chunkCount++;
+
+  return Math.max(1, chunkCount);
 }
 
-// 100% Compliant Mock Analysis
+// 100% Compliant Mock Analysis according to Xsolla Table Specs
 function runMockAnalysis(diff) {
   const findings = [];
   const lines = diff.split('\n');
@@ -113,50 +130,51 @@ function runMockAnalysis(diff) {
       continue;
     }
 
+    // Rules apply ONLY to added lines ('+' excluding header '+++')
     if (line.startsWith('+') && !line.startsWith('+++')) {
       newLineNum++;
       const addedContent = line.substring(1);
 
       // MOCK-001
       if (addedContent.includes('eval(')) {
-        findings.push(createFinding('MOCK-001', currentFile, newLineNum, 'critical', 'security', 'eval usage', line));
+        findings.push(createFinding('MOCK-001', currentFile, newLineNum, 'critical', 'security', 'eval usage', addedContent));
       }
       // MOCK-002
       if (/(api[_-]?key|secret|token)\s*[:=]\s*['"][A-Za-z0-9_\-]{16,}['"]/i.test(addedContent)) {
-        findings.push(createFinding('MOCK-002', currentFile, newLineNum, 'critical', 'security', 'hardcoded credential', line));
+        findings.push(createFinding('MOCK-002', currentFile, newLineNum, 'critical', 'security', 'hardcoded credential', addedContent));
       }
       // MOCK-003
       if (/(SELECT|INSERT|UPDATE|DELETE)/i.test(addedContent) && addedContent.includes('+')) {
-        findings.push(createFinding('MOCK-003', currentFile, newLineNum, 'high', 'security', 'SQL string concatenation', line));
+        findings.push(createFinding('MOCK-003', currentFile, newLineNum, 'high', 'security', 'SQL string concatenation', addedContent));
       }
       // MOCK-004
       if (/catch\s*\([^)]*\)\s*\{\s*\}/.test(addedContent) || (addedContent.includes('catch') && addedContent.includes('{}'))) {
-        findings.push(createFinding('MOCK-004', currentFile, newLineNum, 'high', 'correctness', 'swallowed exception', line));
+        findings.push(createFinding('MOCK-004', currentFile, newLineNum, 'high', 'correctness', 'swallowed exception', addedContent));
       }
       // MOCK-005
       if (addedContent.includes('== null') || addedContent.includes('!= null')) {
-        findings.push(createFinding('MOCK-005', currentFile, newLineNum, 'medium', 'correctness', 'loose null comparison', line));
+        findings.push(createFinding('MOCK-005', currentFile, newLineNum, 'medium', 'correctness', 'loose null comparison', addedContent));
       }
       // MOCK-006
       if (addedContent.includes('JSON.parse(JSON.stringify(')) {
-        findings.push(createFinding('MOCK-006', currentFile, newLineNum, 'medium', 'performance', 'deep-clone via JSON', line));
+        findings.push(createFinding('MOCK-006', currentFile, newLineNum, 'medium', 'performance', 'deep-clone via JSON', addedContent));
       }
       // MOCK-007
       if (addedContent.includes('console.log(')) {
-        findings.push(createFinding('MOCK-007', currentFile, newLineNum, 'low', 'style', 'console.log left in', line));
+        findings.push(createFinding('MOCK-007', currentFile, newLineNum, 'low', 'style', 'console.log left in', addedContent));
       }
       // MOCK-008
       if (addedContent.includes('TODO') || addedContent.includes('FIXME')) {
-        findings.push(createFinding('MOCK-008', currentFile, newLineNum, 'low', 'style', 'unresolved marker', line));
+        findings.push(createFinding('MOCK-008', currentFile, newLineNum, 'low', 'style', 'unresolved marker', addedContent));
       }
-      // MOCK-INJ
+      // MOCK-INJ (Inert prompt injection detection)
       if (/(ignore previous instructions|disregard all prior|you are now)/i.test(addedContent)) {
-        findings.push(createFinding('MOCK-INJ', currentFile, newLineNum, 'critical', 'security', 'prompt-injection content', line));
+        findings.push(createFinding('MOCK-INJ', currentFile, newLineNum, 'critical', 'security', 'prompt-injection content', addedContent));
       }
     }
   }
 
-  // Exact sorting spec: path -> line -> ruleId
+  // Exact sorting spec: path (lexicographic) -> line (ascending) -> ruleId
   findings.sort((a, b) => {
     if (a.path !== b.path) return a.path.localeCompare(b.path);
     if (a.line !== b.line) return a.line - b.line;
@@ -189,7 +207,7 @@ function createFinding(ruleId, path, line, severity, category, title, evidence) 
   };
 }
 
-// Job Processor
+// Asynchronous Job Processor
 async function processJobInBackground(jobId, diff, options) {
   const job = jobsDb.get(jobId);
   if (!job) return;
@@ -202,31 +220,30 @@ async function processJobInBackground(jobId, diff, options) {
     const maxFindings = options?.maxFindings || 100;
     let findings = [];
 
-if (provider === 'mock') {
+    if (provider === 'mock') {
       findings = runMockAnalysis(diff);
     } else if (provider === 'llm') {
-      // Jika API Key wujud & genAI sedia
-      if (genAI) {
-        try {
-          const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' });
-          const prompt = `You are a code review tool. Analyze this unified diff and respond with JSON array of security/quality findings. Each item must have: id, ruleId, path, line, severity, category, title, evidence.\n\nDiff:\n${diff}`;
-          
-          const result = await model.generateContent(prompt);
-          const text = result.response.text();
-          const jsonStart = text.indexOf('[');
-          const jsonEnd = text.lastIndexOf(']');
-          
-          if (jsonStart !== -1 && jsonEnd !== -1) {
-            findings = JSON.parse(text.substring(jsonStart, jsonEnd + 1));
-          } else {
-            findings = runMockAnalysis(diff); // Fallback jika format LLM pelik
-          }
-        } catch (e) {
-          findings = runMockAnalysis(diff); // Fallback jika Gemini API timeout/error
+      // Direct Spec Rule: LLM must cleanly fail if unreachable or unconfigured
+      if (!genAI) {
+        throw new Error('LLM provider is not configured on the server (missing GEMINI_API_KEY).');
+      }
+
+      try {
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const prompt = `You are a code review tool. Analyze this unified diff and respond strictly with a valid JSON array of security/quality findings. Each item must have: id, ruleId, path, line, severity, category, title, evidence.\n\nDiff:\n${diff}`;
+        
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+        const jsonStart = text.indexOf('[');
+        const jsonEnd = text.lastIndexOf(']');
+        
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          findings = JSON.parse(text.substring(jsonStart, jsonEnd + 1));
+        } else {
+          throw new Error('LLM response format was not a valid JSON array.');
         }
-      } else {
-        // Fallback jika API Key tiada dalam environment Render
-        findings = runMockAnalysis(diff);
+      } catch (e) {
+        throw new Error(`LLM provider error: ${e.message}`);
       }
     }
 
@@ -248,11 +265,12 @@ if (provider === 'mock') {
     emitSSE(job, 'done', { total: job.findings.length, usage: job.usage });
 
   } catch (err) {
+    // Graceful Job Failure (Never crash the Express server)
     job.status = 'failed';
     job.error = err.message;
     emitSSE(job, 'status', { status: 'failed', error: job.error });
   } finally {
-    // Close connections
+    // Close active listener connections
     job.listeners.forEach(res => res.end());
     job.listeners = [];
   }
@@ -270,7 +288,7 @@ function emitSSE(job, eventName, data) {
 
 // POST /v1/reviews
 app.post('/v1/reviews', (req, res) => {
-  // Rate Limiting (30 per min)
+  // Rate Limiting (30 submissions per minute max)
   const clientIp = req.ip || 'global';
   const now = Date.now();
   const userRate = rateLimitMap.get(clientIp) || { count: 0, resetAt: now + 60000 };
@@ -287,17 +305,17 @@ app.post('/v1/reviews', (req, res) => {
   userRate.count++;
   rateLimitMap.set(clientIp, userRate);
 
-  // Payload check (Excess of 1MiB caught by express.json limit, this catches invalid json/missing diff)
+  // Payload verification
   const { diff, options } = req.body || {};
   if (!diff || typeof diff !== 'string' || diff.trim() === '') {
     return sendError(res, 422, 'invalid_diff', 'Unified diff is missing or invalid');
   }
 
-  // Hash payload for cache and idempotency
+  // Hash payload for cache and idempotency checks
   const bodyHash = crypto.createHash('sha256').update(req.rawBody || JSON.stringify(req.body)).digest('hex');
   const idempotencyKey = req.headers['idempotency-key'];
 
-  // Idempotency
+  // Idempotency execution
   if (idempotencyKey) {
     if (idempotencyDb.has(idempotencyKey)) {
       const existing = idempotencyDb.get(idempotencyKey);
@@ -312,7 +330,7 @@ app.post('/v1/reviews', (req, res) => {
   const provider = options?.provider || 'mock';
   const cacheKey = `${provider}:${options?.maxFindings || 100}:${bodyHash}`;
 
-  // Caching
+  // Caching execution
   if (cacheDb.has(cacheKey)) {
     const cachedData = cacheDb.get(cacheKey);
     const cachedJobId = 'job_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
@@ -356,13 +374,13 @@ app.post('/v1/reviews', (req, res) => {
   jobsDb.set(jobId, newJob);
   if (idempotencyKey) idempotencyDb.set(idempotencyKey, { hash: bodyHash, jobId });
 
-  // Fire and forget processing
+  // Fire-and-forget async processing
   setImmediate(() => processJobInBackground(jobId, diff, options));
 
   return res.status(202).json({ jobId, status: 'queued' });
 });
 
-// GET /v1/reviews/:id (Standard Polling)
+// GET /v1/reviews/:id (Polling Endpoint)
 app.get('/v1/reviews/:id', (req, res) => {
   const { id } = req.params;
   const job = jobsDb.get(id);
@@ -380,7 +398,7 @@ app.get('/v1/reviews/:id', (req, res) => {
   return res.status(200).json(response);
 });
 
-// GET /v1/reviews/:id/stream (SSE Stream)
+// GET /v1/reviews/:id/stream (SSE Endpoint)
 app.get('/v1/reviews/:id/stream', (req, res) => {
   const { id } = req.params;
   const job = jobsDb.get(id);
@@ -392,13 +410,13 @@ app.get('/v1/reviews/:id/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  // If job is already complete, replay all events identically
+  // Replay all events if job is already finished/failed
   if (job.status === 'done' || job.status === 'failed') {
     job.events.forEach(eventData => res.write(eventData));
     return res.end();
   }
 
-  // If job is in progress, register this connection as a listener
+  // Register live listener
   res.write(`event: status\ndata: ${JSON.stringify({ status: job.status })}\n\n`);
   job.listeners.push(res);
 
@@ -407,12 +425,12 @@ app.get('/v1/reviews/:id/stream', (req, res) => {
   });
 });
 
-// Global 404
+// Global 404 Handler
 app.use((req, res) => {
   sendError(res, 404, 'not_found', 'Route not found');
 });
 
-// Global Error Handler for invalid JSON bodies
+// Global Error Handler for Invalid JSON Payload
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
     return sendError(res, 400, 'invalid_json', 'Invalid JSON payload');
