@@ -229,6 +229,7 @@ async function processJobInBackground(jobId, diff, options) {
       }
 
       try {
+        // [Bug Fix 1] Updated Model Name
         const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash-lite' });
         const prompt = `You are a code review tool. Analyze this unified diff and respond strictly with a valid JSON array of security/quality findings. Each item must have: id, ruleId, path, line, severity, category, title, evidence.\n\nDiff:\n${diff}`;
         
@@ -250,9 +251,14 @@ async function processJobInBackground(jobId, diff, options) {
     job.findings = findings.slice(0, maxFindings);
     job.status = 'done';
 
-    // Save to Cache
+    // [Bug Fix 2] Save to Cache with full usage payload
     if (job.cacheKey) {
-      cacheDb.set(job.cacheKey, { diff, options, findings: job.findings, usage: job.usage });
+      cacheDb.set(job.cacheKey, { 
+        diff, 
+        options, 
+        findings: job.findings, 
+        usage: { ...job.usage, cacheHit: false } 
+      });
     }
 
     // Stream findings line by line
@@ -305,10 +311,18 @@ app.post('/v1/reviews', (req, res) => {
   userRate.count++;
   rateLimitMap.set(clientIp, userRate);
 
-  // Payload verification
+  // [Bug Fix 3] Payload & Unified Diff Verification
   const { diff, options } = req.body || {};
-  if (!diff || typeof diff !== 'string' || diff.trim() === '') {
-    return sendError(res, 422, 'invalid_diff', 'Unified diff is missing or invalid');
+  const isHeaderValid = typeof diff === 'string' && diff.trim().length > 0;
+  const isUnifiedDiff = isHeaderValid && (
+    diff.includes('@@') || 
+    diff.includes('--- ') || 
+    diff.includes('+++ ') || 
+    diff.includes('diff --git')
+  );
+
+  if (!isUnifiedDiff) {
+    return sendError(res, 422, 'invalid_diff', 'Unified diff is missing, empty, or not parseable as a unified diff');
   }
 
   // Hash payload for cache and idempotency checks
