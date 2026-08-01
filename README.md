@@ -15,7 +15,7 @@ An asynchronous, SSE-enabled microservice built with Node.js and Express that an
 
 ## 🔍 Mock Analysis Rules Engine
 
-When using `"provider": "mock"`, the engine scans added diff lines (`+`) against predefined deterministic static analysis rules:
+When using `"provider": "mock"`, the engine scans added diff lines (`+`) against 9 predefined deterministic static analysis rules:
 
 | Rule ID | Category | Severity | Detection Pattern | Description / Title |
 | :--- | :--- | :--- | :--- | :--- |
@@ -24,6 +24,10 @@ When using `"provider": "mock"`, the engine scans added diff lines (`+`) against
 | `MOCK-003` | `security` | `medium` | `.innerHTML =` | Cross-Site Scripting (XSS) vulnerability |
 | `MOCK-004` | `security` | `high` | `password\s*=` / `secret\s*=` | Hardcoded credential or secret detected |
 | `MOCK-005` | `style` | `low` | `console.log(...)` | Leftover debugging statement |
+| `MOCK-006` | `security` | `high` | `SELECT.*FROM` / `INSERT INTO` | Potential SQL Injection vulnerability in raw queries |
+| `MOCK-007` | `security` | `high` | `crypto.createCipher(` | Deprecated and weak encryption method used |
+| `MOCK-008` | `security` | `medium` | `http://` | Insecure HTTP connection endpoint detected |
+| `MOCK-009` | `performance`| `medium` | `fs.readFileSync(...)` | Blocking synchronous I/O operation in event loop |
 
 ---
 
