@@ -1,50 +1,126 @@
-# 🛡️ AI-Powered Code Reviewer Service
+# 🛡️ Xsolla Code Review Engine API
 
-A lightweight, high-performance Node.js backend service built for the Xsolla Technical Assessment. It provides asynchronous code diff scanning with both deterministic static analysis (Mock Rules) and AI-driven security evaluation (Google Gemini API).
-
----
-
-## ✨ Features
-
-- **Dual Engine Reviewer:**
-  - `mock`: Fast, deterministic static rule checks (`MOCK-001` through `MOCK-INJ`) with precise line and code detection.
-  - `llm`: Smart dynamic code auditing powered by Google Gemini AI.
-- **Real-Time SSE Streaming:** Live progress updates via Server-Sent Events (`event: status`, `event: finding`, `event: done`) with full event-replay support for completed jobs.
-- **Idempotency Guard:** `Idempotency-Key` header validation with SHA-256 payload hashing to prevent duplicate jobs and return `409 Conflict` on payload mismatches.
-- **Performance Caching:** Instant response (`cacheHit: true`) for repeated identical diff requests.
-- **Robust Security & Rate Limiting:** Enforces strict Bearer Token Authentication across all `/v1/*` routes and protects endpoints against spam (30 requests/minute).
-- **Smart Chunking:** Gracefully handles large diffs (>64 KiB) by splitting along file boundaries.
+An asynchronous, SSE-enabled microservice built with Node.js and Express that analyzes unified code diffs for security vulnerabilities and quality issues. Supports both deterministic mock analysis and LLM-powered review capabilities via Gemini API.
 
 ---
 
-## 🛠️ Prerequisites & Installation
+## 🚀 Features
 
-### Requirements
-- **Node.js**: `v18.x` or higher
-- **npm**: `v9.x` or higher
+* **Asynchronous Streaming (SSE):** Real-time event streaming (`status`, `finding`, `done`) via Server-Sent Events.
+* **Smart Caching & Idempotency:** Prevents redundant processing by hashing payload diffs (`cacheHit: true`).
+* **Authentication & Rate Limiting:** Enforces strict Bearer token authentication and IP-based rate limiting (30 req/min).
+* **Engine Flexibility:** Supports both fast deterministic `mock` scans and AI-driven `llm` reviews.
 
-### 1. Clone the Repository
-```bash
-git clone [https://github.com/Amca20/xsolla-ai-diff-review.git](https://github.com/Amca20/xsolla-ai-diff-review.git)
-cd xsolla-ai-diff-review
+---
+
+## 🔍 Mock Analysis Rules Engine
+
+When using `"provider": "mock"`, the engine scans added diff lines (`+`) against predefined deterministic static analysis rules:
+
+| Rule ID | Category | Severity | Detection Pattern | Description / Title |
+| :--- | :--- | :--- | :--- | :--- |
+| `MOCK-001` | `security` | `critical` | `eval(...)` | Unsafe dynamic code execution (`eval usage`) |
+| `MOCK-002` | `security` | `high` | `exec(...)` / `execSync(...)` | Potential Command Injection risk via child process execution |
+| `MOCK-003` | `security` | `medium` | `.innerHTML =` | Cross-Site Scripting (XSS) vulnerability |
+| `MOCK-004` | `security` | `high` | `password\s*=` / `secret\s*=` | Hardcoded credential or secret detected |
+| `MOCK-005` | `style` | `low` | `console.log(...)` | Leftover debugging statement |
+
+---
+
+## 🛠️ API Reference
+
+### 1. Submit Code Review Job
+`POST /v1/reviews`
+
+#### Headers
+| Header | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `Authorization` | String | **Yes** | `Bearer AMSYAR_XSOLLA_INTERN2026` |
+| `Content-Type` | String | **Yes** | `application/json` |
+| `Idempotency-Key`| String | No | Unique key to ensure request idempotency |
+
+#### Request Body
+```json
+{
+  "provider": "mock",
+  "diff": "--- a/app.js\n+++ b/app.js\n@@ -1 +1 @@\n+eval('deleteAll()');",
+  "options": {
+    "maxFindings": 100
+  }
+}
 ```
 
-## 🛠️ Setup & Running
+#### Response (`202 Accepted`)
+```json
+{
+  "jobId": "job_1712345678_abc12",
+  "status": "queued"
+}
+```
 
-1. **Install dependencies:**
+---
+
+### 2. Stream Review Results
+`GET /v1/reviews/:id/stream`
+
+#### Headers
+| Header | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `Authorization` | String | **Yes** | `Bearer AMSYAR_XSOLLA_INTERN2026` |
+
+#### Server-Sent Events (SSE) Response Stream
+```http
+event: status
+data: {"status":"running"}
+
+event: finding
+data: {"id":"MOCK-001:app.js:1","ruleId":"MOCK-001","path":"app.js","line":1,"severity":"critical","category":"security","title":"eval usage","evidence":"+eval('deleteAll()');"}
+
+event: done
+data: {"total":1,"usage":{"inputBytes":76,"chunks":1,"cacheHit":false}}
+```
+
+---
+
+## ⚠️ Error Handling & Status Codes
+
+| Status Code | Error Code | Description |
+| :--- | :--- | :--- |
+| `401` | `unauthorized` | Missing or invalid Bearer authorization token. |
+| `409` | `idempotency_conflict` | Idempotency key reused with a different payload. |
+| `413` | `payload_too_large` | Diff payload exceeds the 1 MiB size limit. |
+| `422` | `invalid_diff` | Diff is missing, empty, or improperly formatted. |
+| `429` | `rate_limited` | Exceeded 30 requests per minute limit. |
+
+---
+
+## ⚡ Getting Started Locally
+
+### Prerequisites
+* **Node.js:** v18+ 
+* **npm:** v9+
+
+### Installation & Setup
+
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/Amca20/xsolla-diff-review.git](https://github.com/Amca20/xsolla-diff-review.git)
+   cd xsolla-diff-review
+   ```
+
+2. **Install dependencies:**
    ```bash
    npm install
    ```
 
-2. **Environment Setup:**
-   Buat fail `.env` dalam root folder dan masukkan:
+3. **Set up environment variables (`.env`):**
    ```env
    PORT=3000
    BEARER_TOKEN=AMSYAR_XSOLLA_INTERN2026
-   GEMINI_API_KEY=your_gemini_api_key_here
+   GEMINI_API_KEY=your_optional_gemini_api_key
    ```
 
-3. **Run Server:**
+4. **Start the server:**
    ```bash
-   node server.js
+   npm start
    ```
