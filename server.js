@@ -229,8 +229,8 @@ async function processJobInBackground(jobId, diff, options) {
       }
 
       try {
-        // [Bug Fix 1] Updated Model Name
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash-lite' });
+        // Updated to official Gemini model name
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' });
         const prompt = `You are a code review tool. Analyze this unified diff and respond strictly with a valid JSON array of security/quality findings. Each item must have: id, ruleId, path, line, severity, category, title, evidence.\n\nDiff:\n${diff}`;
         
         const result = await model.generateContent(prompt);
@@ -251,7 +251,7 @@ async function processJobInBackground(jobId, diff, options) {
     job.findings = findings.slice(0, maxFindings);
     job.status = 'done';
 
-    // [Bug Fix 2] Save to Cache with full usage payload
+    // Save to Cache with full usage payload
     if (job.cacheKey) {
       cacheDb.set(job.cacheKey, { 
         diff, 
@@ -311,7 +311,7 @@ app.post('/v1/reviews', (req, res) => {
   userRate.count++;
   rateLimitMap.set(clientIp, userRate);
 
-  // [Bug Fix 3] Payload & Unified Diff Verification
+  // Payload & Unified Diff Verification
   const { diff, options } = req.body || {};
   const isHeaderValid = typeof diff === 'string' && diff.trim().length > 0;
   const isUnifiedDiff = isHeaderValid && (
