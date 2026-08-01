@@ -11,6 +11,7 @@
 * **SHA-256 Hashing:** Generates payload hashes to detect reused `Idempotency-Key` headers (HTTP 409) and serve instant cached results (`cacheHit: true`).
 * **Real-Time Streaming:** Implements Server-Sent Events (`text/event-stream`) for live job status updates and historical replay upon reconnection.
 * **Graceful Failure Contract:** Unreachable or unconfigured LLM providers cleanly transition jobs to a `failed` status without crashing the server.
+---
 
 ## 2. Provider Design
 The service decouples analysis via two distinct provider interfaces:
