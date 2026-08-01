@@ -1,16 +1,16 @@
 # Candidate Task Submission — AI Diff Review Service
 
 ## 1. System Architecture
-* **Framework & Runtime:** Asynchronous Express REST API built on Node.js and hosted on Render for automated single-pass code review analysis.
-* **Authentication Layer:** Exposes public endpoints (`/health`, `/spec`) while enforcing strict Bearer Token middleware across all protected `/v1/*` routes.
-* **Asynchronous Job Model:** Submissions instantly acknowledge with HTTP 202 (`queued`), delegating diff processing line-by-line to a background worker to prevent event loop blocking.
-* **In-Memory Store:** Uses native `Map()` instances to manage state for active jobs (`queued`, `running`, `done`, `failed`), stream events, and cached findings.
-* **Pluggable Analysis Engine:** Decouples analysis execution between a deterministic local Regex engine (`mock`) and an external Google Gemini API integration (`llm`).
-* **Cross-Cutting Middlewares:** Employs custom Express error handlers to enforce payload size limits (HTTP 413) and intercept malformed JSON bodies (HTTP 400).
-* **Traffic Control:** Enforces sliding-window IP rate limiting (30 req/min) on submission routes, returning HTTP 429 with dynamic `Retry-After` headers.
-* **Idempotency & Caching:** Utilizes SHA-256 payload hashing to handle duplicate submission keys (HTTP 409) and serve instant cached results (`cacheHit: true`).
-* **Real-time Event Streaming:** Integrates Server-Sent Events (SSE) via `text/event-stream` for live job progress updates and historical replay.
----
+* **Runtime & Stack:** Express REST API built on Node.js, deployed on Render for single-pass unified diff code reviews.
+* **API & Auth Guard:** Exposes public `/health` and `/spec` routes while enforcing Bearer Token authentication on protected `/v1/*` endpoints.
+* **Async Job Processing:** Immediately acknowledges requests with HTTP 202 (`queued`), offloading line-by-line diff analysis to a background worker.
+* **In-Memory Storage:** Leverages native `Map()` instances to manage state for active jobs (`queued`, `running`, `done`, `failed`), event logs, and findings.
+* **Pluggable Engine Interface:** Decouples analysis execution between a deterministic local regex engine (`mock`) and Google Gemini API integration (`llm`).
+* **Error Resilience:** Global Express error middlewares catch raw payload errors, returning HTTP 400 (`invalid_json`) and HTTP 413 (`payload_too_large`).
+* **Traffic Control:** Enforces an in-memory sliding-window rate limiter (30 req/min) on `/v1/reviews`, issuing HTTP 429 with `Retry-After` headers.
+* **SHA-256 Hashing:** Generates payload hashes to detect reused `Idempotency-Key` headers (HTTP 409) and serve instant cached results (`cacheHit: true`).
+* **Real-Time Streaming:** Implements Server-Sent Events (`text/event-stream`) for live job status updates and historical replay upon reconnection.
+* **Graceful Failure Contract:** Unreachable or unconfigured LLM providers cleanly transition jobs to a `failed` status without crashing the server.
 
 ## 2. Provider Design
 The service decouples analysis via two distinct provider interfaces:
