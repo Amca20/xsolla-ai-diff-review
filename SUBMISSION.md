@@ -1,11 +1,15 @@
 # Candidate Task Submission — AI Diff Review Service
 
 ## 1. System Architecture
-The service is built as an asynchronous Node.js/Express REST API deployed on Render, designed to perform single-pass AI code review on unified diffs.
-* **API & Auth Layer (`server.js`):** Exposes public endpoints (`/health`, `/spec`) and enforces Bearer Token authentication on all `/v1/*` routes.
-* **Asynchronous Queue & Processing:** Requests are acknowledged immediately with HTTP 202 (`queued`), while a background worker processes diffs line-by-line without blocking the main event loop.
-* **In-Memory Store:** Tracks job states (`queued` -> `running` -> `done` / `failed`), findings, SSE event logs, and usage metrics (`inputBytes`, `chunks`, `cacheHit`).
-
+* **Framework & Runtime:** Asynchronous Express REST API built on Node.js and hosted on Render for automated single-pass code review analysis.
+* **Authentication Layer:** Exposes public endpoints (`/health`, `/spec`) while enforcing strict Bearer Token middleware across all protected `/v1/*` routes.
+* **Asynchronous Job Model:** Submissions instantly acknowledge with HTTP 202 (`queued`), delegating diff processing line-by-line to a background worker to prevent event loop blocking.
+* **In-Memory Store:** Uses native `Map()` instances to manage state for active jobs (`queued`, `running`, `done`, `failed`), stream events, and cached findings.
+* **Pluggable Analysis Engine:** Decouples analysis execution between a deterministic local Regex engine (`mock`) and an external Google Gemini API integration (`llm`).
+* **Cross-Cutting Middlewares:** Employs custom Express error handlers to enforce payload size limits (HTTP 413) and intercept malformed JSON bodies (HTTP 400).
+* **Traffic Control:** Enforces sliding-window IP rate limiting (30 req/min) on submission routes, returning HTTP 429 with dynamic `Retry-After` headers.
+* **Idempotency & Caching:** Utilizes SHA-256 payload hashing to handle duplicate submission keys (HTTP 409) and serve instant cached results (`cacheHit: true`).
+* **Real-time Event Streaming:** Integrates Server-Sent Events (SSE) via `text/event-stream` for live job progress updates and historical replay.
 ---
 
 ## 2. Provider Design
