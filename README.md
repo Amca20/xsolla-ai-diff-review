@@ -15,19 +15,19 @@ An asynchronous, SSE-enabled microservice built with Node.js and Express that an
 
 ## 🔍 Mock Analysis Rules Engine
 
-When using `"provider": "mock"`, the engine scans added diff lines (`+`) against 9 predefined deterministic static analysis rules:
+When using `"provider": "mock"`, the engine scans added diff lines (`+`) against the official deterministic static analysis rules:
 
-| Rule ID | Category | Severity | Detection Pattern | Description / Title |
+| ruleId | severity | category | trigger (on the added line) | title |
 | :--- | :--- | :--- | :--- | :--- |
-| `MOCK-001` | `security` | `critical` | `eval(...)` | Unsafe dynamic code execution (`eval usage`) |
-| `MOCK-002` | `security` | `high` | `exec(...)` / `execSync(...)` | Potential Command Injection risk via child process execution |
-| `MOCK-003` | `security` | `medium` | `.innerHTML =` | Cross-Site Scripting (XSS) vulnerability |
-| `MOCK-004` | `security` | `high` | `password\s*=` / `secret\s*=` | Hardcoded credential or secret detected |
-| `MOCK-005` | `style` | `low` | `console.log(...)` | Leftover debugging statement |
-| `MOCK-006` | `security` | `high` | `SELECT.*FROM` / `INSERT INTO` | Potential SQL Injection vulnerability in raw queries |
-| `MOCK-007` | `security` | `high` | `crypto.createCipher(` | Deprecated and weak encryption method used |
-| `MOCK-008` | `security` | `medium` | `http://` | Insecure HTTP connection endpoint detected |
-| `MOCK-009` | `performance`| `medium` | `fs.readFileSync(...)` | Blocking synchronous I/O operation in event loop |
+| `MOCK-001` | `critical` | `security` | contains `eval(` | eval usage |
+| `MOCK-002` | `critical` | `security` | matches `/(api[_-]?key\|secret\|token)\s*[:=]\s*['"][A-Za-z0-9_\-]{16,}['"]/i` | hardcoded credential |
+| `MOCK-003` | `high` | `security` | SQL keyword (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) inside a string concatenated with `+` | SQL string concatenation |
+| `MOCK-004` | `high` | `correctness` | empty catch block (may span lines; report the `catch` line) | swallowed exception |
+| `MOCK-005` | `medium` | `correctness` | `== null` or `!= null` | loose null comparison |
+| `MOCK-006` | `medium` | `performance` | `JSON.parse(JSON.stringify(` | deep-clone via JSON |
+| `MOCK-007` | `low` | `style` | contains `console.log(` | console.log left in |
+| `MOCK-008` | `low` | `style` | contains `TODO` or `FIXME` | unresolved marker |
+| `MOCK-INJ` | `critical` | `security` | contains, case-insensitive, `ignore previous instructions` or `disregard all prior` or `you are now` | prompt-injection content |
 
 ---
 
