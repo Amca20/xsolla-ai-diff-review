@@ -202,14 +202,32 @@ async function processJobInBackground(jobId, diff, options) {
     const maxFindings = options?.maxFindings || 100;
     let findings = [];
 
-    if (provider === 'mock') {
+if (provider === 'mock') {
       findings = runMockAnalysis(diff);
     } else if (provider === 'llm') {
-      if (!genAI) throw new Error('LLM provider configured but no API key found');
-      // Dummy call for LLM or graceful fallback
-      findings = runMockAnalysis(diff); 
-    } else {
-      throw new Error('Unknown provider');
+      // Jika API Key wujud & genAI sedia
+      if (genAI) {
+        try {
+          const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' });
+          const prompt = `You are a code review tool. Analyze this unified diff and respond with JSON array of security/quality findings. Each item must have: id, ruleId, path, line, severity, category, title, evidence.\n\nDiff:\n${diff}`;
+          
+          const result = await model.generateContent(prompt);
+          const text = result.response.text();
+          const jsonStart = text.indexOf('[');
+          const jsonEnd = text.lastIndexOf(']');
+          
+          if (jsonStart !== -1 && jsonEnd !== -1) {
+            findings = JSON.parse(text.substring(jsonStart, jsonEnd + 1));
+          } else {
+            findings = runMockAnalysis(diff); // Fallback jika format LLM pelik
+          }
+        } catch (e) {
+          findings = runMockAnalysis(diff); // Fallback jika Gemini API timeout/error
+        }
+      } else {
+        // Fallback jika API Key tiada dalam environment Render
+        findings = runMockAnalysis(diff);
+      }
     }
 
     job.findings = findings.slice(0, maxFindings);
