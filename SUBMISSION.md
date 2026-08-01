@@ -12,7 +12,6 @@ The service is built as an asynchronous Node.js/Express REST API deployed on Ren
 The service decouples analysis via two distinct provider interfaces:
 * **Mock Provider (`provider: "mock"`):** Fully deterministic, regex-based security and code quality engine. Scans added lines (`+`) against exact trigger rules (`MOCK-001` through `MOCK-008` & `MOCK-INJ`), generating structured findings sorted by `path` -> `line` -> `ruleId`.
 * **LLM Provider (`provider: "llm"`):** Integrates directly with the Google Gemini API (`gemini-3.1-flash-lite`) using server-side credentials (`GEMINI_API_KEY`).
-* **Graceful Failure Contract:** Strictly adheres to the candidate task contract. If the LLM is unconfigured, rate-limited, or unreachable, the job transitions gracefully to a `failed` state with a descriptive error payload, ensuring the Express server never crashes (preventing HTTP 500 errors).
 
 ---
 
