@@ -229,7 +229,7 @@ async function processJobInBackground(jobId, diff, options) {
       }
 
       try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash-lite' });
         const prompt = `You are a code review tool. Analyze this unified diff and respond strictly with a valid JSON array of security/quality findings. Each item must have: id, ruleId, path, line, severity, category, title, evidence.\n\nDiff:\n${diff}`;
         
         const result = await model.generateContent(prompt);
