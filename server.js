@@ -109,7 +109,6 @@ function calculateChunks(diffText) {
   return Math.max(1, chunkCount);
 }
 
-// 100% Compliant Mock Analysis according to Xsolla Table Specs
 function runMockAnalysis(diff) {
   const findings = [];
   const lines = diff.split('\n');
@@ -174,7 +173,7 @@ function runMockAnalysis(diff) {
     }
   }
 
-  // Exact sorting spec: path (lexicographic) -> line (ascending) -> ruleId
+  // Exact sorting spec: path (lexicographic) -> line (ascending) -> ruleId (lexicographic)
   findings.sort((a, b) => {
     if (a.path !== b.path) return a.path.localeCompare(b.path);
     if (a.line !== b.line) return a.line - b.line;
